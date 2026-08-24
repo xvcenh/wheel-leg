@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>wheel_leg_bringup</name>
+  <version>0.1.0</version>
+  <description>Master bringup launch file for the wheel-legged robot system</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>wheel_leg_driver</exec_depend>
+  <exec_depend>wheel_leg_vision</exec_depend>
+  <exec_depend>wheel_leg_control</exec_depend>
+  <exec_depend>wheel_leg_msgs</exec_depend>
+  <exec_depend>mipi_cam</exec_depend>
+  <exec_depend>joy</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

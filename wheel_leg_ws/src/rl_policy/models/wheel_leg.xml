@@ -1,0 +1,125 @@
+<!--
+  Wheel-Legged Robot MuJoCo Model
+  
+  Parameters from STM32 firmware:
+    l1 = 0.075m, l2 = 0.14m, l3 = 0.14m, l4 = 0.075m
+    l5 = 0.08m (base), wheel_r = 0.0603m
+    Half-body mass ~1.3kg (Mg=13.0N)
+    
+  Structure:
+    base_link -> left_hip -> left_knee -> left_wheel
+               -> right_hip -> right_knee -> right_wheel
+    (five-bar linkage: l1, l2, l3, l4, l5)
+-->
+<mujoco model="wheel_leg_robot">
+  <compiler angle="radian" coordinate="local" meshdir="." texturedir="."/>
+  
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
+  
+  <default>
+    <joint damping="0.1"/>
+    <geom rgba="0.8 0.2 0.2 1"/>
+  </default>
+  
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.8" rgb2="0.1 0.1 0.1"/>
+    <material name="metal" rgba="0.4 0.4 0.5 1"/>
+    <material name="wheel" rgba="0.1 0.1 0.1 1"/>
+  </asset>
+  
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 0.01" rgba="0.8 0.8 0.8 1"/>
+    <light pos="0 0 3" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    
+    <!-- ============ LEFT LEG ============ -->
+    <body name="left_hip" pos="0.04 0.04 0.20">
+      <inertial mass="0.3" pos="0 0 0.075" diaginertia="0.001 0.001 0.001"/>
+      <geom type="capsule" fromto="0 0 0 0 0 0.075" size="0.01" material="metal"/>
+      <joint name="left_hip_joint" type="hinge" axis="1 0 0" range="-3.14 3.14"/>
+      
+      <body name="left_knee" pos="0 0 0.075">
+        <inertial mass="0.3" pos="0 0 0.07" diaginertia="0.001 0.001 0.001"/>
+        <geom type="capsule" fromto="0 0 0 0 0 0.07" size="0.01" material="metal"/>
+        <joint name="left_knee_joint" type="hinge" axis="1 0 0" range="-3.14 3.14"/>
+        
+        <body name="left_wheel" pos="0 0 0.07">
+          <inertial mass="0.2" pos="0 0 0" diaginertia="0.0005 0.001 0.001"/>
+          <geom type="cylinder" size="0.0603 0.015" material="wheel"/>
+          <joint name="left_wheel_joint" type="hinge" axis="0 1 0"/>
+        </body>
+      </body>
+    </body>
+    
+    <!-- ============ RIGHT LEG ============ -->
+    <body name="right_hip" pos="0.04 -0.04 0.20">
+      <inertial mass="0.3" pos="0 0 0.075" diaginertia="0.001 0.001 0.001"/>
+      <geom type="capsule" fromto="0 0 0 0 0 0.075" size="0.01" material="metal"/>
+      <joint name="right_hip_joint" type="hinge" axis="1 0 0" range="-3.14 3.14"/>
+      
+      <body name="right_knee" pos="0 0 0.075">
+        <inertial mass="0.3" pos="0 0 0.07" diaginertia="0.001 0.001 0.001"/>
+        <geom type="capsule" fromto="0 0 0 0 0 0.07" size="0.01" material="metal"/>
+        <joint name="right_knee_joint" type="hinge" axis="1 0 0" range="-3.14 3.14"/>
+        
+        <body name="right_wheel" pos="0 0 0.07">
+          <inertial mass="0.2" pos="0 0 0" diaginertia="0.0005 0.001 0.001"/>
+          <geom type="cylinder" size="0.0603 0.015" material="wheel"/>
+          <joint name="right_wheel_joint" type="hinge" axis="0 1 0"/>
+        </body>
+      </body>
+    </body>
+    
+    <!-- ============ BODY (center of mass) ============ -->
+    <body name="base_link" pos="0 0 0.15">
+      <inertial mass="1.3" pos="0 0 0" diaginertia="0.01 0.01 0.01"/>
+      <geom type="box" size="0.06 0.04 0.06" material="metal"/>
+      <site name="imu" pos="0 0 0" size="0.01"/>
+    </body>
+  </worldbody>
+  
+  <!-- Actuators: 6 DOF torque control -->
+  <actuator>
+    <general name="left_hip_torque"  joint="left_hip_joint"  gainprm="1" ctrlrange="-10 10"/>
+    <general name="left_knee_torque" joint="left_knee_joint" gainprm="1" ctrlrange="-10 10"/>
+    <general name="right_hip_torque"  joint="right_hip_joint"  gainprm="1" ctrlrange="-10 10"/>
+    <general name="right_knee_torque" joint="right_knee_joint" gainprm="1" ctrlrange="-10 10"/>
+    <general name="left_wheel_torque"  joint="left_wheel_joint"  gainprm="1" ctrlrange="-18 18"/>
+    <general name="right_wheel_torque" joint="right_wheel_joint" gainprm="1" ctrlrange="-18 18"/>
+  </actuator>
+  
+  <!-- Sensors -->
+  <sensor>
+    <gyro name="gyro" site="imu"/>
+    <accelerometer name="accel" site="imu"/>
+    <framepos name="base_pos" objtype="body" objname="base_link"/>
+    <framequat name="base_quat" objtype="body" objname="base_link"/>
+    <framevel name="base_vel" objtype="body" objname="base_link"/>
+    <jointpos name="left_hip_pos"  joint="left_hip_joint"/>
+    <jointpos name="left_knee_pos" joint="left_knee_joint"/>
+    <jointpos name="right_hip_pos"  joint="right_hip_joint"/>
+    <jointpos name="right_knee_pos" joint="right_knee_joint"/>
+    <jointpos name="left_wheel_pos"  joint="left_wheel_joint"/>
+    <jointpos name="right_wheel_pos" joint="right_wheel_joint"/>
+    <jointvel name="left_hip_vel"  joint="left_hip_joint"/>
+    <jointvel name="left_knee_vel" joint="left_knee_joint"/>
+    <jointvel name="right_hip_vel"  joint="right_hip_joint"/>
+    <jointvel name="right_knee_vel" joint="right_knee_joint"/>
+    <jointvel name="left_wheel_vel"  joint="left_wheel_joint"/>
+    <jointvel name="right_wheel_vel" joint="right_wheel_joint"/>
+  </sensor>
+  
+  <!-- Initial pose: standing upright -->
+  <keyframe>
+    <key name="init" qpos="
+      0 0 0.20       # base: x, y, z
+      0.15 0 0       # base orientation (small roll to match five-bar geometry)
+      -0.3 -0.3       # left_hip, left_knee
+      -0.3 -0.3       # right_hip, right_knee
+      0 0              # left_wheel, right_wheel
+    "/>
+  </keyframe>
+  
+  <actuator>
+    <!-- Motor parameters match STM32: DM4310 max 10Nm, DM6215 max 18Nm -->
+  </actuator>
+</mujoco>

@@ -1,0 +1,9 @@
+/**:
+  ros__parameters:
+    color: "red"               # "red" | "yellow" | "yellow_black"
+    hsv_lower: [0, 100, 100]   # H, S, V lower
+    hsv_upper: [10, 255, 255]  # H, S, V upper
+    roi_top: 0.4               # fraction from top for ROI
+    roi_bottom: 1.0            # fraction from top for ROI bottom
+    min_contour_area: 200      # pixels
+    publish_debug_img: true

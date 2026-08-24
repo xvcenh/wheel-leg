@@ -1,0 +1,33 @@
+# ===== ROS 2 build artifacts =====
+wheel_leg_ws/build/
+wheel_leg_ws/install/
+wheel_leg_ws/log/
+
+# ===== Model files (large binaries) =====
+*.onnx
+
+# ===== Keil / UV4 build artifacts =====
+**/MDK-ARM/*/
+**/MDK-ARM/*.o
+**/MDK-ARM/*.d
+**/MDK-ARM/*.crf
+**/MDK-ARM/*.lst
+**/MDK-ARM/*.dep
+**/MDK-ARM/*.lnp
+**/MDK-ARM/*.map
+**/MDK-ARM/*.htm
+**/MDK-ARM/*.build_log.htm
+**/MDK-ARM/*.axf
+**/MDK-ARM/*.hex
+**/MDK-ARM/*.sct
+**/MDK-ARM/*.uvguix.*
+
+# ===== Python =====
+__pycache__/
+*.pyc
+
+# ===== OS / editor =====
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
