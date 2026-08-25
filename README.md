@@ -26,6 +26,7 @@ The legacy UART link was replaced with a unified **CAN3 (FDCAN3, classic CAN @ 1
 |------|----------|
 | [`WheelLeg-FW/`](WheelLeg-FW/) | STM32 firmware (Keil MDK, STM32H723): motor control, CAN3 multi-frame TX, BMI088 IMU + Mahony, battery protection, WS2812 LED, buzzer, CAN bus-off self-healing |
 | [`wheel_leg_ws/`](wheel_leg_ws/) | ROS 2 Humble workspace: `rl_policy` (CAN bridge + telemetry + web nodes), `wheel_leg_bringup`, `wheel_leg_control` (state machine), `wheel_leg_msgs`, `wheel_leg_vision` |
+| [`docs/版本记录.md`](docs/版本记录.md) | Version history: 18 firmware + 11 host revisions, key milestones, rollback guide |
 
 ## Hardware
 
