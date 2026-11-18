@@ -68,7 +68,7 @@ Each telemetry packet is split into 8-byte classic CAN frames: `[Type(1B)][Flags
 **Subscribes:** `/cmd_vel`, `/mcu/torque_cmd`, `/mcu/pos_cmd`, `/mcu/enable`.
 **Transport:** `can` (default) / `uart`, `can_interface=can0`.
 
-The Web dashboard (`telemetry_web_node.py`, port 8080) is pure Python stdlib — no extra dependencies — and streams IMU attitude, battery voltage, joint and wheel states, and the four joint motors’ MOS and coil temperatures over WebSocket every 100 ms. The dashboard marks missing and stale samples and reconnects automatically.
+The Web dashboard (`telemetry_web_node.py`, port 8080) is pure Python stdlib — no extra dependencies — and streams IMU attitude, battery voltage, joint and wheel states, and the four joint motors’ MOS and coil temperatures over WebSocket every 100 ms. The dashboard marks missing and stale samples and reconnects automatically. An unavailable orientation stays blank while valid gyro and acceleration samples remain available. Each connection receives the latest snapshot independently.
 
 ## Key design decisions
 

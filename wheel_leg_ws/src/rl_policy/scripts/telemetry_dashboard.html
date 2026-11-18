@@ -57,7 +57,7 @@ function render(data, connected = true) {
   for (const {card,topic,health,metrics,protection} of panels) {
     const age = data.age_s?.[topic];
     const stale = !connected || (Number.isFinite(age) && age > 3);
-    card.dataset.health = stale ? "stale" : "live";
+    card.dataset.health = stale ? "stale" : Number.isFinite(age) ? "live" : "waiting";
     health.textContent = !connected ? "数据已过期" : !Number.isFinite(age) ? "等待数据" : stale ? "数据已过期 · " + age.toFixed(1) + " s" : "正在接收";
     const sample = data[topic] || {};
     for (const {path,unit,min,max,bar,output} of metrics) {

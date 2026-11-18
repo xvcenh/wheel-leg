@@ -11,13 +11,17 @@ WheelLeg 遥测仪表盘 — WebSocket 实时数据可视化
 
 只读显示收到的 ROS 遥测数据。
 """
+import base64
+import hashlib
 import json
 import math
 from pathlib import Path
 import time
 import threading
 import http.server
+import socket
 import socketserver
+from urllib.parse import urlsplit
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, JointState
@@ -68,15 +72,13 @@ class TelemetryWebNode(Node):
 
     def cb_imu(self, msg):
         q = msg.orientation
-        # 四元数→欧拉角
-        sinr = 2*(q.w*q.x + q.y*q.z)
-        cosr = 1 - 2*(q.x*q.x + q.y*q.y)
-        roll = math.atan2(sinr, cosr)
-        sinp = 2*(q.w*q.y - q.z*q.x)
-        pitch = math.asin(max(-1, min(1, sinp)))
-        siny = 2*(q.w*q.z + q.x*q.y)
-        cosy = 1 - 2*(q.y*q.y + q.z*q.z)
-        yaw = math.atan2(siny, cosy)
+        length = math.hypot(q.w, q.x, q.y, q.z)
+        roll = pitch = yaw = None
+        if msg.orientation_covariance[0] != -1 and math.isfinite(length) and length > 1e-9:
+            w, x, y, z = (component / length for component in (q.w, q.x, q.y, q.z))
+            roll = math.atan2(2 * (w*x + y*z), 1 - 2 * (x*x + y*y))
+            pitch = math.asin(max(-1, min(1, 2 * (w*y - z*x))))
+            yaw = math.atan2(2 * (w*z + x*y), 1 - 2 * (y*y + z*z))
         with self.data_lock:
             self.received['imu'] = time.monotonic()
             self.data['imu'] = {
@@ -124,8 +126,9 @@ class TelemetryWebNode(Node):
             }
 
     def push_data(self):
-        if not self.ws_clients:
-            return
+        with self.ws_lock:
+            if not self.ws_clients:
+                return
         with self.data_lock:
             now = time.monotonic()
             payload = {
@@ -134,24 +137,16 @@ class TelemetryWebNode(Node):
             }
             payload["age_s"] = {topic: round(now - ts, 3) for topic, ts in self.received.items()}
             snapshot = json.dumps(payload, allow_nan=False).encode("utf-8")
-        # WebSocket 文本帧: 0x82 + 长度 + 数据 (服务端掩码=无)
+        # WebSocket 文本帧: 0x81 + 长度 + 数据 (服务端掩码=无)
         frame = self._ws_frame(snapshot)
         with self.ws_lock:
-            for client in self.ws_clients[:]:
-                try:
-                    client.write(frame)
-                    client.flush()
-                except Exception:
-                    # 客户端已断开（handle_websocket 线程可能已移除），防御性移除
-                    try:
-                        self.ws_clients.remove(client)
-                    except ValueError:
-                        pass
+            for client in self.ws_clients:
+                client.publish(frame)
 
     @staticmethod
-    def _ws_frame(data):
-        """编码 WebSocket 文本帧 (服务端→客户端, 无掩码)"""
-        header = bytearray([0x81])  # FIN=1, opcode=1(text)
+    def _ws_frame(data, opcode=1):
+        """Encode a final server-to-client WebSocket frame."""
+        header = bytearray([0x80 | opcode])
         length = len(data)
         if length < 126:
             header.append(length)
@@ -169,55 +164,115 @@ class TelemetryHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
 
 
-class TelemetryHandler(http.server.BaseHTTPRequestHandler):
-    node = None  # set by TelemetryHTTPServer
+class TelemetryPeer:
+    """Keep only the most recent snapshot while a client is writing a previous one."""
 
-    def do_GET(self):
-        if self.path == '/' or self.path == '/index.html':
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.end_headers()
-            self.wfile.write(HTML_PAGE.encode('utf-8'))
-        elif self.path == '/ws':
-            self.handle_websocket()
-        else:
-            self.send_response(404)
-            self.end_headers()
+    def __init__(self, handler):
+        self.handler = handler
+        self.ready = threading.Condition()
+        self.output_lock = threading.Lock()
+        self.pending = None
+        self.closed = False
 
-    def log_message(self, format, *args):
-        pass  # 静默
+    def publish(self, frame):
+        with self.ready:
+            self.pending = frame
+            self.ready.notify()
 
-    def handle_websocket(self):
-        import base64, hashlib, os, struct
-        # WebSocket 握手
-        key = self.headers.get('Sec-WebSocket-Key')
-        if not key:
-            self.send_response(400)
-            self.end_headers()
-            return
-        accept = base64.b64encode(
-            hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()
-        ).decode()
-        self.send_response(101)
-        self.send_header('Upgrade', 'websocket')
-        self.send_header('Connection', 'Upgrade')
-        self.send_header('Sec-WebSocket-Accept', accept)
-        self.end_headers()
-        # 注册客户端
-        with self.server.node.ws_lock:
-            self.server.node.ws_clients.append(self.wfile)
-        # 保持连接
+    def stop(self):
+        with self.ready:
+            self.closed = True
+            self.ready.notify()
+
+    def write(self, frame):
+        with self.output_lock:
+            self.handler.wfile.write(frame)
+
+    def send_loop(self):
         try:
             while True:
-                data = self.rfile.read(1)
-                if not data:
+                with self.ready:
+                    self.ready.wait_for(lambda: self.closed or self.pending is not None)
+                    if self.closed:
+                        return
+                    frame, self.pending = self.pending, None
+                with self.output_lock:
+                    if not self.closed:
+                        self.handler.wfile.write(frame)
+        except (OSError, ValueError):
+            try:
+                self.handler.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+class TelemetryHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        path = urlsplit(self.path).path
+        if path in ("/", "/index.html"):
+            page = HTML_PAGE.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+        elif path == "/ws":
+            self.handle_websocket()
+        else:
+            self.send_error(404)
+
+    def log_message(self, format, *args):
+        pass
+
+    def handle_websocket(self):
+        key = self.headers.get("Sec-WebSocket-Key", "")
+        if (not key or self.headers.get("Upgrade", "").lower() != "websocket"
+                or self.headers.get("Sec-WebSocket-Version") != "13"):
+            self.send_error(400)
+            return
+        accept = hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
+        self.send_response(101)
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", base64.b64encode(accept).decode())
+        self.end_headers()
+        self.close_connection = True
+        node = self.server.node
+        peer = TelemetryPeer(self)
+        with node.ws_lock:
+            node.ws_clients.append(peer)
+        threading.Thread(target=peer.send_loop, daemon=True).start()
+        try:
+            while True:
+                header = self.rfile.read(2)
+                if len(header) != 2:
                     break
-        except Exception:
+                flags, length = header
+                opcode = flags & 15
+                if flags not in (0x88, 0x89, 0x8a) or not length & 0x80 or (length & 127) > 125:
+                    # Subscribers receive telemetry. Application messages are unsupported.
+                    code = 1003 if opcode in (1, 2) else 1002
+                    peer.write(node._ws_frame(code.to_bytes(2, "big"), 8))
+                    break
+                mask = self.rfile.read(4)
+                payload = self.rfile.read(length & 127)
+                if len(mask) != 4 or len(payload) != (length & 127):
+                    break
+                payload = bytes(value ^ mask[i % 4] for i, value in enumerate(payload))
+                if opcode == 8:
+                    peer.stop()
+                    peer.write(node._ws_frame(payload, 8))
+                    break
+                if opcode == 9:
+                    peer.write(node._ws_frame(payload, 10))
+        except OSError:
             pass
         finally:
-            with self.server.node.ws_lock:
-                if self.wfile in self.server.node.ws_clients:
-                    self.server.node.ws_clients.remove(self.wfile)
+            with node.ws_lock:
+                node.ws_clients.remove(peer)
+            peer.stop()
 
 
 HTML_PAGE = Path(__file__).with_name("telemetry_dashboard.html").read_text(encoding="utf-8")
@@ -231,6 +286,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     node.server.shutdown()
+    node.server.server_close()
     node.destroy_node()
     rclpy.shutdown()
 
