@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WheelLeg 遥测仪表盘</title>
+<style>
+:root { color-scheme: dark; font: 15px/1.5 system-ui,"Microsoft YaHei",sans-serif; background: #101b21; color: #e6efec; }
+body { max-width: 1100px; margin: auto; padding: 30px 18px; }
+header { display: flex; gap: 10px 28px; flex-wrap: wrap; align-items: baseline; justify-content: space-between; }
+h1 { margin: 0; font-size: clamp(24px,4vw,38px); } #connection { color: #b9d7c7; }
+main { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,310px),1fr)); gap: 14px; margin-top: 22px; }
+article { background: #182830; border: 1px solid #36505a; border-radius: 6px; padding: 18px; }
+h2 { font-size: 17px; margin: 0 0 4px; } .health { margin: 0 0 12px; color: #b6c5bc; font-size: 12px; }
+.row { display: grid; grid-template-columns: 78px 1fr 91px; align-items: center; gap: 8px; margin: 7px 0; }
+output { font: 13px/1.5 ui-monospace,monospace; text-align: right; }
+progress { accent-color: #9ddaab; width: 100%; height: 9px; } article[data-health="stale"] { border-color: #9a7740; }
+.warning { color: #ffd278; }.critical { color: #ff9691; }.normal { color: #a8e8bd; }
+</style></head><body>
+<header><h1>WheelLeg 遥测仪表盘</h1><span id="connection" role="status">等待连接</span></header><main id="panels"></main>
+<script>
+"use strict";
+const groups = [
+  ["imu","IMU 姿态",["roll","pitch","yaw"].map(k => [k,k,"rad",-Math.PI,Math.PI])],
+  ["power","电池电源",[["电池电压","voltage","V",18,25.2],["IMU 温度","imu_temp","°C",0,90]]],
+  ["joints","关节角度",["hip_R","knee_R","hip_L","knee_L"].map((n,i) => [n,["pos",i],"rad",-Math.PI,Math.PI])],
+  ["wheels","轮毂位置与速度",[["左轮位置",["pos",0],"rad",-50,50],["右轮位置",["pos",1],"rad",-50,50],["左轮速度",["vel",0],"rad/s",-45,45],["右轮速度",["vel",1],"rad/s",-45,45]]],
+  ...[["tmos","关节 MOS 温度"],["tcoil","关节线圈温度"]].map(([key,title]) => ["temp",title,["hip_R","knee_R","hip_L","knee_L"].map((n,i) => [n,[key,i],"°C",0,100])])
+];
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+const panels = groups.map(([topic, title, fields]) => {
+  const card = element("article");
+  const health = element("p","等待数据","health");
+  card.append(element("h2",title),health);
+  const metrics = fields.map(([label,path,unit,min,max]) => {
+    const row = element("div",null,"row");
+    const bar = element("progress");
+    bar.max = 100; bar.value = 0; bar.setAttribute("aria-hidden","true");
+    const output = element("output","—");
+    row.append(element("span",label),bar,output);
+    card.append(row);
+    return {path,unit,min,max,bar,output};
+  });
+  let protection;
+  if (topic === "power") {
+    protection = element("strong","未知");
+    const state = element("p","保护状态 · ");
+    state.append(protection); card.append(state);
+  }
+  document.getElementById("panels").append(card);
+  return {card,topic,health,metrics,protection};
+});
+
+function render(data, connected = true) {
+  for (const {card,topic,health,metrics,protection} of panels) {
+    const age = data.age_s?.[topic];
+    const stale = !connected || (Number.isFinite(age) && age > 3);
+    card.dataset.health = stale ? "stale" : "live";
+    health.textContent = !connected ? "数据已过期" : !Number.isFinite(age) ? "等待数据" : stale ? "数据已过期 · " + age.toFixed(1) + " s" : "正在接收";
+    const sample = data[topic] || {};
+    for (const {path,unit,min,max,bar,output} of metrics) {
+      const value = Array.isArray(path) ? sample[path[0]]?.[path[1]] : sample[path];
+      const valid = Number.isFinite(value);
+      bar.value = valid ? Math.max(0,Math.min(100,(value-min)/(max-min)*100)) : 0;
+      output.textContent = valid ? value.toFixed(unit === "°C" ? 1 : 2) + " " + unit : "—";
+    }
+    if (protection) {
+      const states = new Map([[0,["正常","normal"]],[1,["警告","warning"]],[2,["锁定","critical"]]]);
+      const state = !stale && Number.isFinite(age) && states.get(sample.protect);
+      protection.textContent = state ? state[0] : "未知";
+      protection.className = state ? state[1] : "";
+    }
+  }
+}
+const status = document.getElementById("connection");
+let delay = 500, lastData = {}, retry, idle, socket;
+function connect() {
+  status.textContent = "正在连接…";
+  const url = new URL("/ws", location.href);
+  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  socket = new WebSocket(url);
+  socket.onopen = () => { status.textContent = "已连接"; delay = 500; };
+  socket.onmessage = event => {
+    try {
+      lastData = JSON.parse(event.data);
+      render(lastData);
+      status.textContent = "已连接";
+      clearTimeout(idle);
+      idle = setTimeout(() => {
+        status.textContent = "遥测推送已中断";
+        render(lastData,false);
+      }, 3500);
+    }
+    catch { status.textContent = "接收到无效数据"; }
+  };
+  socket.onclose = () => {
+    clearTimeout(idle);
+    render(lastData,false); status.textContent = "连接断开，正在重试…";
+    retry = setTimeout(connect,delay); delay = Math.min(8000,delay*2);
+  };
+}
+if (location.protocol === "http:" || location.protocol === "https:") connect();
+else status.textContent = "本地预览 · 等待 ROS 遥测服务";
+window.addEventListener("pagehide", () => { clearTimeout(retry); clearTimeout(idle); if (socket) { socket.onclose = null; socket.close(); } });
+window.addEventListener("pageshow", event => { if (event.persisted) connect(); });
+</script></body></html>

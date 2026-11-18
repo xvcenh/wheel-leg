@@ -68,7 +68,7 @@ Each telemetry packet is split into 8-byte classic CAN frames: `[Type(1B)][Flags
 **Subscribes:** `/cmd_vel`, `/mcu/torque_cmd`, `/mcu/pos_cmd`, `/mcu/enable`.
 **Transport:** `can` (default) / `uart`, `can_interface=can0`.
 
-The Web dashboard (`telemetry_web_node.py`, port 8080) is pure Python stdlib — no extra dependencies — and streams IMU attitude, battery voltage, joint/hub states, MOS and coil temperatures over WebSocket every 100 ms.
+The Web dashboard (`telemetry_web_node.py`, port 8080) is pure Python stdlib — no extra dependencies — and streams IMU attitude, battery voltage, joint and wheel states, and the four joint motors’ MOS and coil temperatures over WebSocket every 100 ms. The dashboard marks missing and stale samples and reconnects automatically.
 
 ## Key design decisions
 
@@ -82,16 +82,18 @@ The Web dashboard (`telemetry_web_node.py`, port 8080) is pure Python stdlib —
 ## Deploy & verify
 
 ```bash
-# CAN interface on RDK
-ssh sunrise@<RDK_IP> "sudo ip link set can0 up type can bitrate 1000000"
-# Build
-scp -r wheel_leg_ws/src/rl_policy sunrise@<RDK_IP>:~/wheel_leg_ws/src/
-ssh sunrise@<RDK_IP> "cd ~/wheel_leg_ws && colcon build --packages-select rl_policy"
-# Launch telemetry + web
-ssh sunrise@<RDK_IP> "nohup ~/wheel_leg_ws/install/rl_policy/lib/rl_policy/mcu_telemetry_node \
-  --ros-args -p transport:=can -p can_interface:=can0 > /tmp/telemetry.log 2>&1 < /dev/null &"
-ssh sunrise@<RDK_IP> "nohup python3 ~/wheel_leg_ws/install/rl_policy/lib/rl_policy/telemetry_web_node.py \
-  > /tmp/web.log 2>&1 < /dev/null &"
+# On the RDK, with the repository workspace checked out under ~/wheel_leg_ws
+source /opt/ros/humble/setup.bash
+cd ~/wheel_leg_ws
+colcon build --packages-up-to rl_policy
+source install/setup.bash
+sudo ip link set can0 up type can bitrate 1000000
+ros2 launch rl_policy mcu_telemetry.launch.py transport:=can can_interface:=can0
+
+# In a second RDK shell
+source /opt/ros/humble/setup.bash
+source ~/wheel_leg_ws/install/setup.bash
+ros2 run rl_policy telemetry_web_node.py
 # Browser: http://<RDK_IP>:8080
 ```
 

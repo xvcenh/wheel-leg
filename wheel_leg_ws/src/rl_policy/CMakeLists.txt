@@ -82,6 +82,8 @@ install(DIRECTORY launch models scripts
 )
 
 # 安装 Python 可执行脚本
+install(FILES scripts/telemetry_dashboard.html DESTINATION lib/${PROJECT_NAME})
+
 install(PROGRAMS
   scripts/telemetry_web_node.py
   scripts/pos_web_server.py
