@@ -76,22 +76,26 @@ function render(data, connected = true) {
 }
 const status = document.getElementById("connection");
 let delay = 500, lastData = {}, retry, idle, socket;
+const online = location.protocol === "http:" || location.protocol === "https:";
+function armIdleTimer() {
+  clearTimeout(idle);
+  idle = setTimeout(() => {
+    status.textContent = "遥测推送已中断";
+    render(lastData, false);
+  }, 3500);
+}
 function connect() {
   status.textContent = "正在连接…";
   const url = new URL("/ws", location.href);
   url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
   socket = new WebSocket(url);
-  socket.onopen = () => { status.textContent = "已连接"; delay = 500; };
+  socket.onopen = () => { status.textContent = "已连接，等候首帧"; delay = 500; armIdleTimer(); };
   socket.onmessage = event => {
     try {
       lastData = JSON.parse(event.data);
       render(lastData);
       status.textContent = "已连接";
-      clearTimeout(idle);
-      idle = setTimeout(() => {
-        status.textContent = "遥测推送已中断";
-        render(lastData,false);
-      }, 3500);
+      armIdleTimer();
     }
     catch { status.textContent = "接收到无效数据"; }
   };
@@ -101,8 +105,8 @@ function connect() {
     retry = setTimeout(connect,delay); delay = Math.min(8000,delay*2);
   };
 }
-if (location.protocol === "http:" || location.protocol === "https:") connect();
+if (online) connect();
 else status.textContent = "本地预览 · 等待 ROS 遥测服务";
 window.addEventListener("pagehide", () => { clearTimeout(retry); clearTimeout(idle); if (socket) { socket.onclose = null; socket.close(); } });
-window.addEventListener("pageshow", event => { if (event.persisted) connect(); });
+window.addEventListener("pageshow", event => { if (event.persisted && online) connect(); });
 </script></body></html>
